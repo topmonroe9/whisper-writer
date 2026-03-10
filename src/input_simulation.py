@@ -2,7 +2,7 @@ import subprocess
 import os
 import signal
 import time
-from pynput.keyboard import Controller as PynputController
+from pynput.keyboard import Controller as PynputController, Key as PynputKey
 
 from utils import ConfigManager
 
@@ -31,7 +31,7 @@ class InputSimulator:
         self.input_method = ConfigManager.get_config_value('post_processing', 'input_method')
         self.dotool_process = None
 
-        if self.input_method == 'pynput':
+        if self.input_method in ('pynput', 'clipboard'):
             self.keyboard = PynputController()
         elif self.input_method == 'dotool':
             self._initialize_dotool()
@@ -59,12 +59,115 @@ class InputSimulator:
             text (str): The text to type.
         """
         interval = ConfigManager.get_config_value('post_processing', 'writing_key_press_delay')
-        if self.input_method == 'pynput':
+        if self.input_method == 'clipboard':
+            self._typewrite_clipboard(text)
+        elif self.input_method == 'pynput':
             self._typewrite_pynput(text, interval)
         elif self.input_method == 'ydotool':
             self._typewrite_ydotool(text, interval)
         elif self.input_method == 'dotool':
             self._typewrite_dotool(text, interval)
+
+    @staticmethod
+    def _setup_win32_clipboard():
+        """Configure ctypes function signatures for Win32 clipboard API."""
+        import ctypes
+
+        user32 = ctypes.windll.user32
+        kernel32 = ctypes.windll.kernel32
+
+        kernel32.GlobalAlloc.argtypes = [ctypes.c_uint, ctypes.c_size_t]
+        kernel32.GlobalAlloc.restype = ctypes.c_void_p
+        kernel32.GlobalLock.argtypes = [ctypes.c_void_p]
+        kernel32.GlobalLock.restype = ctypes.c_void_p
+        kernel32.GlobalUnlock.argtypes = [ctypes.c_void_p]
+        kernel32.GlobalFree.argtypes = [ctypes.c_void_p]
+        user32.GetClipboardData.restype = ctypes.c_void_p
+        user32.SetClipboardData.argtypes = [ctypes.c_uint, ctypes.c_void_p]
+        user32.SetClipboardData.restype = ctypes.c_void_p
+
+        return user32, kernel32
+
+    @staticmethod
+    def _win32_set_clipboard(text):
+        """Set clipboard content using Windows API."""
+        import ctypes
+
+        user32, kernel32 = InputSimulator._setup_win32_clipboard()
+
+        CF_UNICODETEXT = 13
+        GMEM_MOVEABLE = 0x0002
+
+        encoded = text.encode('utf-16-le') + b'\x00\x00'
+        h = kernel32.GlobalAlloc(GMEM_MOVEABLE, len(encoded))
+        ptr = kernel32.GlobalLock(h)
+        ctypes.memmove(ptr, encoded, len(encoded))
+        kernel32.GlobalUnlock(h)
+
+        if user32.OpenClipboard(0):
+            user32.EmptyClipboard()
+            user32.SetClipboardData(CF_UNICODETEXT, h)
+            user32.CloseClipboard()
+        else:
+            kernel32.GlobalFree(h)
+
+    @staticmethod
+    def _win32_get_clipboard():
+        """Get clipboard text content using Windows API. Returns None on failure."""
+        import ctypes
+
+        user32, kernel32 = InputSimulator._setup_win32_clipboard()
+
+        CF_UNICODETEXT = 13
+        result = None
+
+        if user32.OpenClipboard(0):
+            handle = user32.GetClipboardData(CF_UNICODETEXT)
+            if handle:
+                ptr = kernel32.GlobalLock(handle)
+                if ptr:
+                    result = ctypes.wstring_at(ptr)
+                    kernel32.GlobalUnlock(handle)
+            user32.CloseClipboard()
+        return result
+
+    def _typewrite_clipboard(self, text):
+        """
+        Insert text by pasting from the clipboard (Ctrl+V).
+        Uses Windows API directly via ctypes — no external dependencies,
+        works with any keyboard layout, and handles Unicode correctly.
+        Windows only. Falls back to pynput on other platforms.
+        """
+        import sys
+        if sys.platform != 'win32':
+            print("Warning: 'clipboard' input method is Windows only. Falling back to pynput.")
+            return self._typewrite_pynput(text, 0.005)
+
+        import ctypes
+
+        VK_CONTROL = 0x11
+        VK_V = 0x56
+        KEYEVENTF_KEYUP = 0x0002
+        user32 = ctypes.windll.user32
+
+        old_clipboard = self._win32_get_clipboard()
+
+        try:
+            self._win32_set_clipboard(text)
+            time.sleep(0.05)
+
+            user32.keybd_event(VK_CONTROL, 0, 0, 0)
+            user32.keybd_event(VK_V, 0, 0, 0)
+            user32.keybd_event(VK_V, 0, KEYEVENTF_KEYUP, 0)
+            user32.keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, 0)
+
+            time.sleep(0.2)
+        finally:
+            if old_clipboard is not None:
+                try:
+                    self._win32_set_clipboard(old_clipboard)
+                except Exception:
+                    pass
 
     def _typewrite_pynput(self, text, interval):
         """
