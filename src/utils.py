@@ -1,8 +1,10 @@
 import yaml
 import os
+from paths import get_schema_path, get_config_path, get_env_path
 
 class ConfigManager:
     _instance = None
+    _schema = None
 
     def __init__(self):
         """Initialize the ConfigManager instance."""
@@ -17,13 +19,20 @@ class ConfigManager:
             cls._instance.schema = cls._instance.load_config_schema(schema_path)
             cls._instance.config = cls._instance.load_default_config()
             cls._instance.load_user_config()
+            cls.load_env_variables()
 
     @classmethod
     def get_schema(cls):
-        """Get the configuration schema."""
-        if cls._instance is None:
-            raise RuntimeError("ConfigManager not initialized")
-        return cls._instance.schema
+        """Load and return the configuration schema."""
+        if not cls._schema:
+            schema_path = get_schema_path()
+            try:
+                with open(schema_path, 'r') as f:
+                    cls._schema = yaml.safe_load(f)
+            except Exception as e:
+                ConfigManager.console_print(f"Error loading schema: {str(e)}")
+                cls._schema = {}
+        return cls._schema
 
     @classmethod
     def get_config_section(cls, *keys):
@@ -72,8 +81,7 @@ class ConfigManager:
     def load_config_schema(schema_path=None):
         """Load the configuration schema from a YAML file."""
         if schema_path is None:
-            base_dir = os.path.dirname(os.path.abspath(__file__))
-            schema_path = os.path.join(base_dir, 'config_schema.yaml')
+            schema_path = get_schema_path()
 
         with open(schema_path, 'r') as file:
             schema = yaml.safe_load(file)
@@ -94,8 +102,11 @@ class ConfigManager:
             config[category] = extract_value(settings)
         return config
 
-    def load_user_config(self, config_path=os.path.join('src', 'config.yaml')):
+    def load_user_config(self, config_path=None):
         """Load user configuration and merge with default config."""
+        if config_path is None:
+            config_path = get_config_path()
+
         def deep_update(source, overrides):
             for key, value in overrides.items():
                 if isinstance(value, dict) and key in source:
@@ -112,10 +123,12 @@ class ConfigManager:
                 print("Error in configuration file. Using default configuration.")
 
     @classmethod
-    def save_config(cls, config_path=os.path.join('src', 'config.yaml')):
+    def save_config(cls, config_path=None):
         """Save the current configuration to a YAML file."""
         if cls._instance is None:
             raise RuntimeError("ConfigManager not initialized")
+        if config_path is None:
+            config_path = get_config_path()
         with open(config_path, 'w') as file:
             yaml.dump(cls._instance.config, file, default_flow_style=False)
 
@@ -132,11 +145,24 @@ class ConfigManager:
     @classmethod
     def config_file_exists(cls):
         """Check if a valid config file exists."""
-        config_path = os.path.join('src', 'config.yaml')
-        return os.path.isfile(config_path)
+        return os.path.isfile(get_config_path())
 
     @classmethod
     def console_print(cls, message):
         """Print a message to the console if enabled in the configuration."""
         if cls._instance and cls._instance.config['misc']['print_to_terminal']:
             print(message)
+
+    @classmethod
+    def load_env_variables(cls):
+        """Load environment variables from .env file"""
+        env_path = get_env_path()
+        if os.path.exists(env_path):
+            try:
+                with open(env_path, 'r') as f:
+                    for line in f:
+                        if '=' in line:
+                            key, value = line.strip().split('=', 1)
+                            os.environ[key] = value.strip('"').strip("'")
+            except Exception as e:
+                print(f"Error loading .env file: {e}")

@@ -51,13 +51,34 @@ class InputSimulator:
             os.kill(self.dotool_process.pid, signal.SIGINT)
             self.dotool_process = None
 
+    def release_held_modifiers(self):
+        """Release any physically held modifier keys to prevent interference with typing."""
+        if hasattr(self, 'keyboard') and self.keyboard:
+            for mod_key in (PynputKey.ctrl_l, PynputKey.ctrl_r,
+                            PynputKey.shift_l, PynputKey.shift_r,
+                            PynputKey.alt_l, PynputKey.alt_r,
+                            PynputKey.cmd_l, PynputKey.cmd_r):
+                try:
+                    self.keyboard.release(mod_key)
+                except Exception:
+                    pass
+
     def typewrite(self, text):
         """
-        Simulate typing the given text with the specified interval between keystrokes.
+        Simulate typing the given text. Uses clipboard for long text and keystrokes for short text.
 
         Args:
             text (str): The text to type.
         """
+        # Get the character threshold from config, default to 1000 if not set
+        char_threshold = ConfigManager.get_config_value('post_processing', 'clipboard_threshold') or 1000
+        
+        # Use clipboard for long text
+        if len(text) > char_threshold:
+            self._paste_with_clipboard_preservation(text)
+            return
+
+        # Use regular keystroke simulation for shorter text
         interval = ConfigManager.get_config_value('post_processing', 'writing_key_press_delay')
         if self.input_method == 'clipboard':
             self._typewrite_clipboard(text)
@@ -142,6 +163,53 @@ class InputSimulator:
         if sys.platform != 'win32':
             print("Warning: 'clipboard' input method is Windows only. Falling back to pynput.")
             return self._typewrite_pynput(text, 0.005)
+
+        import ctypes
+
+        VK_CONTROL = 0x11
+        VK_V = 0x56
+        KEYEVENTF_KEYUP = 0x0002
+        user32 = ctypes.windll.user32
+
+        old_clipboard = self._win32_get_clipboard()
+
+        try:
+            self._win32_set_clipboard(text)
+            time.sleep(0.05)
+
+            user32.keybd_event(VK_CONTROL, 0, 0, 0)
+            user32.keybd_event(VK_V, 0, 0, 0)
+            user32.keybd_event(VK_V, 0, KEYEVENTF_KEYUP, 0)
+            user32.keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, 0)
+
+            time.sleep(0.2)
+        finally:
+            if old_clipboard is not None:
+                try:
+                    self._win32_set_clipboard(old_clipboard)
+                except Exception:
+                    pass
+
+    def _paste_with_clipboard_preservation(self, text):
+        """
+        Paste text using the clipboard while preserving original clipboard content.
+        Used for long text that exceeds the clipboard_threshold.
+        Uses ctypes on Windows, falls back to regular typing on other platforms.
+
+        Args:
+            text (str): The text to paste.
+        """
+        import sys
+        if sys.platform != 'win32':
+            # On non-Windows, fall back to character-by-character typing
+            interval = ConfigManager.get_config_value('post_processing', 'writing_key_press_delay')
+            if self.input_method in ('pynput', 'clipboard'):
+                self._typewrite_pynput(text, interval)
+            elif self.input_method == 'ydotool':
+                self._typewrite_ydotool(text, interval)
+            elif self.input_method == 'dotool':
+                self._typewrite_dotool(text, interval)
+            return
 
         import ctypes
 

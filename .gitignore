@@ -8,7 +8,9 @@ __pycache__/
 
 # Distribution / packaging
 .Python
-build/
+build/*
+!build/*.spec
+!build/build.py
 develop-eggs/
 dist/
 downloads/
@@ -31,7 +33,9 @@ MANIFEST
 #  Usually these files are written by a python script from a template
 #  before PyInstaller builds the exe, so as to inject date/other infos into it.
 *.manifest
-*.spec
+# Keep our spec files in build/ but ignore auto-generated ones
+/*.spec
+build/pyinstaller_work/
 
 # Installer logs
 pip-log.txt
@@ -102,10 +106,14 @@ celerybeat.pid
 *.sage.py
 
 # Environments
-.env
-.venv
-env/
-venv/
+.env*/
+.env.*
+*.env
+.venv*/
+env*/
+venv*/
+.venv313
+venv313/
 ENV/
 env.bak/
 venv.bak/
@@ -130,3 +138,9 @@ dmypy.json
 
 # Configuration files
 config.yaml
+
+# Keyring and credentials
+*.keyring
+*.cfg
+*.db
+/keyring/*
