@@ -150,7 +150,8 @@ class InputSimulator:
         import sys
         if sys.platform != 'win32':
             print("Warning: 'clipboard' input method is Windows only. Falling back to pynput.")
-            return self._typewrite_pynput(text, 0.005)
+            interval = ConfigManager.get_config_value('post_processing', 'writing_key_press_delay')
+            return self._typewrite_pynput(text, interval)
 
         import ctypes
         user32 = ctypes.windll.user32

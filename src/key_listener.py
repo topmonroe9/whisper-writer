@@ -275,6 +275,16 @@ class KeyChord:
                 return False
         return True
 
+    def contains_key(self, key: KeyCode) -> bool:
+        """Check if a key is part of this chord's definition."""
+        for k in self.keys:
+            if isinstance(k, frozenset):
+                if key in k:
+                    return True
+            elif k == key:
+                return True
+        return False
+
 class KeyListener:
     """
     Manages input backends and listens for specific key combinations.
@@ -822,6 +832,11 @@ class PynputBackend(InputBackend):
         0x5B, 0x5C,  # VK_LWIN / VK_RWIN
     }
 
+    _WM_KEYDOWN = 0x0100
+    _WM_KEYUP = 0x0101
+    _WM_SYSKEYDOWN = 0x0104
+    _WM_SYSKEYUP = 0x0105
+
     def _win32_event_filter(self, msg, data):
         """Intercept raw Win32 keyboard events for two purposes:
 
@@ -845,13 +860,8 @@ class PynputBackend(InputBackend):
         vk = data.vkCode
         self._last_vk = vk
 
-        WM_KEYDOWN = 0x0100
-        WM_SYSKEYDOWN = 0x0104
-        WM_KEYUP = 0x0101
-        WM_SYSKEYUP = 0x0105
-
-        is_down = msg in (WM_KEYDOWN, WM_SYSKEYDOWN)
-        is_up = msg in (WM_KEYUP, WM_SYSKEYUP)
+        is_down = msg in (self._WM_KEYDOWN, self._WM_SYSKEYDOWN)
+        is_up = msg in (self._WM_KEYUP, self._WM_SYSKEYUP)
 
         if is_down:
             self._pressed_vks.add(vk)
@@ -864,24 +874,28 @@ class PynputBackend(InputBackend):
                 and self._vk_map is not None
                 and vk not in self._MODIFIER_VKS):
             # Translate all currently pressed vks to KeyCodes
-            test_pressed = {
-                kc for pvk in self._pressed_vks
-                if (kc := self._vk_map.get(pvk)) is not None
-            }
+            test_pressed = set()
+            for pvk in self._pressed_vks:
+                kc = self._vk_map.get(pvk)
+                if kc is not None:
+                    test_pressed.add(kc)
             if test_pressed and self._key_chord.would_activate(test_pressed):
                 key_code = self._vk_map.get(vk)
                 if key_code:
                     self.on_input_event((key_code, InputEvent.KEY_PRESS))
                 # pynput treats SuppressException as handled — listener keeps running
-                from pynput._util.win32 import SystemHook
-                raise SystemHook.SuppressException()
+                try:
+                    from pynput._util.win32 import SystemHook
+                    raise SystemHook.SuppressException()
+                except ImportError:
+                    pass
 
-        # Forward key-up for keys tracked by the activation chord
+        # Forward key-up for chord-constituent keys
         if (is_up
                 and self._key_chord is not None
                 and self._vk_map is not None):
             key_code = self._vk_map.get(vk)
-            if key_code and key_code in self._key_chord.pressed_keys:
+            if key_code and self._key_chord.contains_key(key_code):
                 self.on_input_event((key_code, InputEvent.KEY_RELEASE))
 
         return True
