@@ -1,12 +1,24 @@
-# <img src="./assets/ww-logo.png" alt="WhisperWriter icon" width="25" height="25"> WhisperWriter
+# <img src="./assets/ww-logo.png" alt="WhisperWriter icon" width="25" height="25"> WhisperWriter (Enhanced Fork)
 
-![version](https://img.shields.io/badge/version-1.0.1-blue)
+![version](https://img.shields.io/badge/version-1.1.0-blue)
+![upstream](https://img.shields.io/badge/upstream-savbell%2Fwhisper--writer-gray)
 
 <p align="center">
     <img src="./assets/ww-demo-image-02.gif" alt="WhisperWriter demo gif" width="340" height="136">
 </p>
 
-**Update (2024-05-28):** I've just merged in a major rewrite of WhisperWriter! We've migrated from using `tkinter` to using `PyQt5` for the UI, added a new settings window for configuration, a new continuous recording mode, support for a local API, and more! Please be patient as I work out any bugs that may have been introduced in the process. If you encounter any problems, please [open a new issue](https://github.com/savbell/whisper-writer/issues)!
+> This is an actively maintained fork of [savbell/whisper-writer](https://github.com/savbell/whisper-writer) (upstream inactive since August 2024). It includes Windows-specific fixes and new features not available in the original.
+
+### What's new in this fork
+
+**Windows keyboard fixes:**
+- Hotkeys now work correctly regardless of keyboard layout (e.g. `ctrl+shift+space` works with Russian, German, etc.)
+- Activation hotkey keys are suppressed from reaching other applications (no more phantom characters)
+- New `clipboard` input method: instant paste via Ctrl+V, works with any keyboard layout and Unicode
+
+**Re-paste last transcription** (`ctrl+shift+v` by default):
+- Press the hotkey to re-insert the last transcribed text when paste didn't land in the right window
+- Configurable in settings, leave empty to disable
 
 WhisperWriter is a small speech-to-text app that uses [OpenAI's Whisper model](https://openai.com/research/whisper) to auto-transcribe recordings from a user's microphone to the active window.
 
@@ -72,7 +84,7 @@ To set up and run the project, follow these steps:
 #### 1. Clone the repository:
 
 ```
-git clone https://github.com/savbell/whisper-writer
+git clone https://github.com/topmonroe9/whisper-writer
 cd whisper-writer
 ```
 
@@ -133,6 +145,7 @@ WhisperWriter uses a configuration file to customize its behaviour. To set up th
 
 #### Recording Options
 - `activation_key`: The keyboard shortcut to activate the recording and transcribing process. Separate keys with a `+`. (Default: `ctrl+shift+space`)
+- `repaste_key`: The keyboard shortcut to re-insert the last transcribed text. Useful when text didn't paste correctly or you switched windows. Leave empty to disable. (Default: `ctrl+shift+v`)
 - `input_backend`: The input backend to use for detecting key presses. `auto` will try to use the best available backend. (Default: `auto`)
 - `recording_mode`: The recording mode to use. Options include `continuous` (auto-restart recording after pause in speech until activation key is pressed again), `voice_activity_detection` (stop recording after pause in speech), `press_to_toggle` (stop recording when activation key is pressed again), `hold_to_record` (stop recording when activation key is released). (Default: `continuous`)
 - `sound_device`: The numeric index of the sound device to use for recording. To find device numbers, run `python -m sounddevice`. (Default: `null`)
@@ -145,7 +158,7 @@ WhisperWriter uses a configuration file to customize its behaviour. To set up th
 - `remove_trailing_period`: Set to `true` to remove the trailing period from the transcribed text. (Default: `false`)
 - `add_trailing_space`: Set to `true` to add a space to the end of the transcribed text. (Default: `true`)
 - `remove_capitalization`: Set to `true` to convert the transcribed text to lowercase. (Default: `false`)
-- `input_method`: The method to use for simulating keyboard input. (Default: `pynput`)
+- `input_method`: The method to use for inserting transcribed text. `clipboard` pastes via Ctrl+V (Windows only, instant, works with any keyboard layout). `pynput` types character by character (may have issues with non-Latin layouts on Windows). (Default: `pynput`)
 
 #### Miscellaneous Options
 - `print_to_terminal`: Set to `true` to print the script status and transcribed text to the terminal. (Default: `true`)
@@ -175,13 +188,16 @@ Implemented features can be found in the [CHANGELOG](CHANGELOG.md).
 
 ## Contributing
 
-Contributions are welcome! I created this project for my own personal use and didn't expect it to get much attention, so I haven't put much effort into testing or making it easy for others to contribute. If you have ideas or suggestions, feel free to [open a pull request](https://github.com/savbell/whisper-writer/pulls) or [create a new issue](https://github.com/savbell/whisper-writer/issues/new). I'll do my best to review and respond as time allows.
+Contributions are welcome! Feel free to [open a pull request](https://github.com/topmonroe9/whisper-writer/pulls) or [create a new issue](https://github.com/topmonroe9/whisper-writer/issues/new).
+
+PRs with Windows-specific improvements and new features are especially appreciated. This fork also submits improvements back to the [upstream repository](https://github.com/savbell/whisper-writer) when possible.
 
 ## Credits
 
-- [OpenAI](https://openai.com/) for creating the Whisper model and providing the API. Plus [ChatGPT](https://chat.openai.com/), which was used to write a lot of the initial code for this project.
+- [savbell](https://github.com/savbell) for creating the original [WhisperWriter](https://github.com/savbell/whisper-writer) project.
+- [OpenAI](https://openai.com/) for creating the Whisper model and providing the API.
 - [Guillaume Klein](https://github.com/guillaumekln) for creating the [faster-whisper Python package](https://github.com/SYSTRAN/faster-whisper).
-- All of our [contributors](https://github.com/savbell/whisper-writer/graphs/contributors)!
+- All [contributors](https://github.com/topmonroe9/whisper-writer/graphs/contributors) to this fork and the original project!
 
 ## License
 
