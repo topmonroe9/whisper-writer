@@ -16,6 +16,7 @@ from transcription import create_local_model
 from input_simulation import InputSimulator
 from utils import ConfigManager
 from llm_processor import LLMProcessor
+from paths import get_asset_path, is_frozen
 
 
 class WhisperWriterApp(QObject):
@@ -25,7 +26,7 @@ class WhisperWriterApp(QObject):
         """
         super().__init__()
         self.app = QApplication(sys.argv)
-        self.app.setWindowIcon(QIcon(os.path.join('assets', 'ww-logo.png')))
+        self.app.setWindowIcon(QIcon(get_asset_path('ww-logo.png')))
 
         ConfigManager.initialize()
 
@@ -74,7 +75,7 @@ class WhisperWriterApp(QObject):
         """
         Create the system tray icon and its context menu.
         """
-        self.tray_icon = QSystemTrayIcon(QIcon(os.path.join('assets', 'ww-logo.png')), self.app)
+        self.tray_icon = QSystemTrayIcon(QIcon(get_asset_path('ww-logo.png')), self.app)
 
         tray_menu = QMenu()
 
@@ -106,13 +107,17 @@ class WhisperWriterApp(QObject):
         """Restart the application to apply the new settings."""
         self.cleanup()
         QApplication.quit()
-        QProcess.startDetached(sys.executable, sys.argv)
+        if is_frozen():
+            # In frozen mode, restart the exe itself
+            QProcess.startDetached(sys.executable, [])
+        else:
+            QProcess.startDetached(sys.executable, sys.argv)
 
     def on_settings_closed(self):
         """
         If settings is closed without saving on first run, initialize the components with default values.
         """
-        if not os.path.exists(os.path.join('src', 'config.yaml')):
+        if not ConfigManager.config_file_exists():
             QMessageBox.information(
                 self.settings_window,
                 'Using Default Values',
@@ -271,7 +276,7 @@ class WhisperWriterApp(QObject):
             self.input_simulator.typewrite(result)
             
             if ConfigManager.get_config_value('misc', 'noise_on_completion'):
-                AudioPlayer(os.path.join('assets', 'beep.wav')).play(block=True)
+                AudioPlayer(get_asset_path('beep.wav')).play(block=True)
 
             if ConfigManager.get_config_value('recording_options', 'recording_mode') == 'continuous':
                 self.start_result_thread()
@@ -350,7 +355,7 @@ class WhisperWriterApp(QObject):
                             keyboard.release('v')
 
                         if ConfigManager.get_config_value('misc', 'noise_on_completion'):
-                            AudioPlayer(os.path.join('assets', 'beep.wav')).play(block=True)
+                            AudioPlayer(get_asset_path('beep.wav')).play(block=True)
 
                     finally:
                         # Ensure all keys are released

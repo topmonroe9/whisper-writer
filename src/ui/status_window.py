@@ -7,6 +7,7 @@ from PyQt5.QtWidgets import QApplication, QLabel, QHBoxLayout, QVBoxLayout
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from ui.base_window import BaseWindow
 from utils import ConfigManager
+from paths import get_asset_path
 
 class StatusWindow(BaseWindow):
     statusSignal = pyqtSignal(str, bool)
@@ -40,8 +41,8 @@ class StatusWindow(BaseWindow):
         
         self.icon_label = QLabel()
         self.icon_label.setFixedSize(32, 32)
-        microphone_path = os.path.join('assets', 'microphone.png')
-        pencil_path = os.path.join('assets', 'pencil.png')
+        microphone_path = get_asset_path('microphone.png')
+        pencil_path = get_asset_path('pencil.png')
         self.microphone_pixmap = QPixmap(microphone_path).scaled(32, 32, Qt.KeepAspectRatio, Qt.SmoothTransformation)
         self.pencil_pixmap = QPixmap(pencil_path).scaled(32, 32, Qt.KeepAspectRatio, Qt.SmoothTransformation)
         self.icon_label.setPixmap(self.microphone_pixmap)

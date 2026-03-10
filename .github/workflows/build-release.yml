@@ -1,0 +1,78 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      variant:
+        description: 'Build variant (api, full, or both)'
+        required: true
+        default: 'both'
+        type: choice
+        options:
+          - api
+          - full
+          - both
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        variant: ${{ github.event_name == 'workflow_dispatch' && (github.event.inputs.variant == 'both' && fromJSON('["api", "full"]') || fromJSON(format('["{0}"]', github.event.inputs.variant))) || fromJSON('["api", "full"]') }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install dependencies (API variant)
+        if: matrix.variant == 'api'
+        run: |
+          python -m pip install --upgrade pip
+          # Install without torch/local-model deps
+          pip install PyQt5>=5.15.10 pynput>=1.7.6 sounddevice>=0.4.6 soundfile>=0.12.1 numpy>=1.26.4 PyYAML>=6.0.1 requests>=2.31.0 tqdm>=4.65.0 audioplayer>=0.6 python-dotenv>=1.0.0 keyring>=24.3.0 webrtcvad-wheels>=2.0.11.post1 srt>=3.5.3 pycaw>=20240210 pywin32>=308 comtypes>=1.4.10 openai>=1.28.0 anthropic>=0.45.2 groq>=0.18.0 google-generativeai>=0.8.4 google-api-core>=2.24.1 google-auth>=2.38.0 googleapis-common-protos>=1.67.0 ollama>=0.4.7 pyinstaller>=6.12.0
+
+      - name: Install dependencies (Full variant)
+        if: matrix.variant == 'full'
+        run: |
+          python -m pip install --upgrade pip
+          pip install .
+
+      - name: Build with PyInstaller
+        run: python build/build.py --variant ${{ matrix.variant }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: WhisperWriter-windows-${{ matrix.variant }}
+          path: dist/WhisperWriter-*-windows-${{ matrix.variant }}.zip
+          retention-days: 30
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          generate_release_notes: true
+          files: artifacts/**/*.zip

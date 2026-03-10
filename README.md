@@ -67,7 +67,29 @@ Additionally, WhisperWriter has a few other tricks up its sleeve:
 - **Pause Audio While Recording**: You can choose to automatically pause audio while recording; it'll start playing again when you stop recording.
 - **Keyring Credentials**: Keys are stored in the Windows Credential Manager using the `keyring` library.
 
-## Installing WhisperWriter
+## Download (Pre-built Binaries)
+
+Pre-built Windows binaries are available on the [GitHub Releases](https://github.com/topmonroe9/whisper-writer/releases) page. No Python, Git, or pip required.
+
+| Variant | Size | What's included |
+|---|---|---|
+| **WhisperWriter-windows-api.zip** | ~150-200 MB | Transcription via API (OpenAI/Deepgram/Groq), LLM processing, all UI |
+| **WhisperWriter-windows-full.zip** | ~2-3 GB | Everything above + local transcription (faster-whisper, Vosk, PyTorch CPU) |
+
+**Quick start:** Download the zip, extract it, and run `WhisperWriter.exe`. Settings are saved to `config.yaml` next to the exe.
+
+> [!NOTE]
+> **Windows SmartScreen warning:** The exe is not code-signed, so Windows may show a "Windows protected your PC" dialog on first launch. Click "More info" and then "Run anyway" to proceed.
+
+> [!TIP]
+> **Which variant should I choose?** If you only use API-based transcription (OpenAI, Deepgram, or Groq), the **api** variant is much smaller and faster to download. If you want local (offline) transcription with faster-whisper or Vosk, use the **full** variant.
+
+> [!NOTE]
+> **GPU acceleration:** CUDA is not bundled. If you have an NVIDIA GPU and want GPU-accelerated local transcription, install the [CUDA Toolkit](https://developer.nvidia.com/cuda-downloads) and [cuDNN](https://developer.nvidia.com/cudnn) separately. The app will auto-detect your system CUDA installation.
+
+---
+
+## Installing from Source
 
 ### Prerequisites
 This version of WhisperWriter officially supports Windows. Both of my test machines are running Windows 11. The previous version, 1.0.1, should officially support Linux.
@@ -457,7 +479,7 @@ Below are features I am planning to add in the near future:
   - [x] Simple word replacement (e.g. "gonna" -> "going to" or "smiley face" -> "😊")
   - [x] Using GPT for instructional post-processing
 - [x] Updating GUI
-- [ ] Creating standalone executable file
+- [x] Creating standalone executable file
 
 Below are features not currently planned:
 - [ ] Pipelining audio files
