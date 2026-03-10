@@ -1,6 +1,6 @@
-# <img src="./assets/ww-logo.png" alt="WhisperWriter icon" width="25" height="25"> WhisperWriter
+# <img src="./assets/ww-logo.png" alt="WhisperWriter icon" width="25" height="25"> WhisperWriter (Enhanced Fork)
 
-![version](https://img.shields.io/badge/version-1.1.1-blue)
+![version](https://img.shields.io/badge/version-1.2.0-blue)
 
 <p align="center">
     <img src="./assets/ww-demo-image-02.gif" alt="WhisperWriter demo gif" width="340" height="136">
@@ -8,7 +8,7 @@
 
 WhisperWriter is a speech-to-text app that lets you dictate and transcribe text, entering it in any app on your computer. It can do so using local transcription models (OpenAI's Whisper models or Alpha Cephei's Vosk models), or via API-based services including OpenAI, Deepgram, and Groq.
 
-This version of the app started as a Windows-focused fork by [Thomas Frank](https://github.com/TomFrankly). The README below has been updated to include all of the changes and updates.
+This is an actively maintained fork that combines improvements from [Thomas Frank's fork](https://github.com/TomFrankly/whisper-writer) with additional Windows keyboard fixes and new features. Based on the [original project](https://github.com/savbell/whisper-writer) by [savbell](https://github.com/savbell).
 
 ## Features
 
@@ -56,6 +56,8 @@ WhisperWriter includes the following recording modes:
 
 Additionally, WhisperWriter has a few other tricks up its sleeve:
 
+- **Re-paste Last Transcription**: Press a configurable hotkey (`ctrl+shift+v` by default) to re-insert the last transcribed text. Useful when text didn't paste correctly or you switched windows.
+- **Windows Keyboard Fixes**: Layout-independent hotkey detection (e.g., `Alt+F` works correctly with non-Latin keyboard layouts), key suppression to prevent activation keys from producing characters, and a clipboard-based text insertion method that is instant and Unicode-aware.
 - **Find and Replace**: Add a `.txt` or `.json` file with custom find and replace rules.
   - Simple mode: Add a `.txt` file with a comma-separated list of `find,replace` pairs (one per line).
   - JSON mode: Add a `.json` file with an array of objects, each containing `type`, `find`, `replace`, and (optionally) `transforms` properties. Supports regular expressions and transformations on regex capture groups. See `examples/regex_find_replace_.json` for an example.
@@ -96,7 +98,7 @@ To set up and run the project, open a command prompt, navigate to your desired i
 #### 1. Clone the repository:
 
 ```
-git clone https://github.com/savbell/whisper-writer
+git clone https://github.com/topmonroe9/whisper-writer
 
 cd whisper-writer
 ```
@@ -204,7 +206,8 @@ The first time you open the app, if a configuration file doesn't exist, a Settin
   - `model_path`: The path to the local Whisper model. If not specified, the default model will be downloaded. (Default: `null`)
 
 #### Recording Options
-- `activation_key`: The keyboard shortcut to activate the recording and transcribing process. Separate keys with a `+`. (Default: `ctrl+shift+space` - I personally use `ctrl+alt+numpad1`)
+- `activation_key`: The keyboard shortcut to activate the recording and transcribing process. Separate keys with a `+`. (Default: `ctrl+shift+space`)
+- `repaste_key`: The keyboard shortcut to re-insert the last transcribed text. Useful when text didn't paste correctly or you switched windows. Leave empty to disable. (Default: `ctrl+shift+v`)
 - `llm_cleanup_key`: The keyboard shortcut to process the last transcription through LLM cleanup. Separate keys with a `+`. (Default: `null` - I personally use `ctrl+alt+numpad2`)
 - `llm_instruction_key`: The keyboard shortcut to process the last transcription through LLM with custom instructions. Separate keys with a `+`. (Default: `null` - I personally use `ctrl+alt+numpad3`)
 - `text_cleanup_key`: The keyboard shortcut to clean up selected text through LLM. Separate keys with a `+`. (Default: `null` - I personally use `ctrl+alt+numpad4`)
@@ -222,7 +225,7 @@ The first time you open the app, if a configuration file doesn't exist, a Settin
 - `remove_trailing_period`: Set to `true` to remove the trailing period from the transcribed text. (Default: `false`)
 - `add_trailing_space`: Set to `true` to add a space to the end of the transcribed text. (Default: `true`)
 - `remove_capitalization`: Set to `true` to convert the transcribed text to lowercase. (Default: `false`)
-- `input_method`: The method to use for simulating keyboard input. (Default: `pynput`)
+- `input_method`: The method to use for inserting transcribed text. `clipboard` pastes via Ctrl+V (Windows only, instant, works with any keyboard layout). `pynput` types character by character (may have issues with non-Latin layouts on Windows). (Default: `pynput`)
 - `clipboard_threshold`: The number of characters at which the transcribed text will be pasted into the active window instead of being typed out. I've added code to restore the previous clipboard content after the transcription is pasted, so I generally recommend setting a low value here. I use 10. (Default: `1000`)
 - `find_replace_file`: The path to a text or JSON file containing find/replace rules. See the Find and Replace section below for more information. (Default: `null`)
 
@@ -444,7 +447,7 @@ RAlt::
 
 ## Known Issues
 
-You can see all reported issues and their current status in our [Issue Tracker](https://github.com/savbell/whisper-writer/issues). If you encounter a problem, please [open a new issue](https://github.com/savbell/whisper-writer/issues/new) with a detailed description and reproduction steps, if possible.
+You can see all reported issues and their current status in our [Issue Tracker](https://github.com/topmonroe9/whisper-writer/issues). If you encounter a problem, please [open a new issue](https://github.com/topmonroe9/whisper-writer/issues/new) with a detailed description and reproduction steps, if possible.
 
 ## Roadmap
 Below are features I am planning to add in the near future:
@@ -463,13 +466,15 @@ Implemented features can be found in the [CHANGELOG](CHANGELOG.md).
 
 ## Contributing
 
-Contributions are welcome! I created this project for my own personal use and didn't expect it to get much attention, so I haven't put much effort into testing or making it easy for others to contribute. If you have ideas or suggestions, feel free to [open a pull request](https://github.com/savbell/whisper-writer/pulls) or [create a new issue](https://github.com/savbell/whisper-writer/issues/new). I'll do my best to review and respond as time allows.
+Contributions are welcome! If you have ideas or suggestions, feel free to [open a pull request](https://github.com/topmonroe9/whisper-writer/pulls) or [create a new issue](https://github.com/topmonroe9/whisper-writer/issues/new).
 
 ## Credits
 
-- [OpenAI](https://openai.com/) for creating the Whisper model and providing the API. Plus [ChatGPT](https://chat.openai.com/), which was used to write a lot of the initial code for this project.
+- [savbell](https://github.com/savbell) for creating the [original WhisperWriter](https://github.com/savbell/whisper-writer).
+- [Thomas Frank](https://github.com/TomFrankly) for the [Windows-focused fork](https://github.com/TomFrankly/whisper-writer) with LLM post-processing, multi-provider transcription, Vosk support, and many other features.
+- [OpenAI](https://openai.com/) for creating the Whisper model and providing the API.
 - [Guillaume Klein](https://github.com/guillaumekln) for creating the [faster-whisper Python package](https://github.com/SYSTRAN/faster-whisper).
-- All of our [contributors](https://github.com/savbell/whisper-writer/graphs/contributors)!
+- All of our [contributors](https://github.com/topmonroe9/whisper-writer/graphs/contributors)!
 
 ## License
 
