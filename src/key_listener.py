@@ -350,6 +350,9 @@ class KeyListener:
 
     def load_key_chords(self):
         """Load all key chords from configuration."""
+        # Clear stale chords (e.g. repaste disabled) while preserving callbacks
+        self.key_chords.clear()
+
         activation_key = ConfigManager.get_config_value('recording_options', 'activation_key')
         keys = self.parse_key_combination(activation_key)
         self.register_chord("activation", keys)

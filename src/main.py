@@ -188,6 +188,7 @@ class WhisperWriterApp(QObject):
             return
         if self.last_transcription:
             self.input_simulator.release_held_modifiers()
+            time.sleep(0.05)
             self.input_simulator.typewrite(self.last_transcription)
 
     def run(self):
