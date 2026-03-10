@@ -2,7 +2,7 @@ import subprocess
 import os
 import signal
 import time
-from pynput.keyboard import Controller as PynputController, Key as PynputKey
+from pynput.keyboard import Controller as PynputController
 
 from utils import ConfigManager
 
@@ -31,8 +31,10 @@ class InputSimulator:
         self.input_method = ConfigManager.get_config_value('post_processing', 'input_method')
         self.dotool_process = None
 
-        if self.input_method in ('pynput', 'clipboard'):
+        if self.input_method == 'pynput':
             self.keyboard = PynputController()
+        elif self.input_method == 'clipboard':
+            self._win32_api_configured = False
         elif self.input_method == 'dotool':
             self._initialize_dotool()
 
@@ -68,14 +70,13 @@ class InputSimulator:
         elif self.input_method == 'dotool':
             self._typewrite_dotool(text, interval)
 
-    @staticmethod
-    def _setup_win32_clipboard():
-        """Configure ctypes function signatures for Win32 clipboard API."""
+    def _ensure_win32_api(self):
+        """Configure ctypes function signatures for Win32 clipboard API (once)."""
+        if self._win32_api_configured:
+            return
         import ctypes
-
-        user32 = ctypes.windll.user32
         kernel32 = ctypes.windll.kernel32
-
+        user32 = ctypes.windll.user32
         kernel32.GlobalAlloc.argtypes = [ctypes.c_uint, ctypes.c_size_t]
         kernel32.GlobalAlloc.restype = ctypes.c_void_p
         kernel32.GlobalLock.argtypes = [ctypes.c_void_p]
@@ -85,22 +86,26 @@ class InputSimulator:
         user32.GetClipboardData.restype = ctypes.c_void_p
         user32.SetClipboardData.argtypes = [ctypes.c_uint, ctypes.c_void_p]
         user32.SetClipboardData.restype = ctypes.c_void_p
+        self._win32_api_configured = True
 
-        return user32, kernel32
-
-    @staticmethod
-    def _win32_set_clipboard(text):
+    def _win32_set_clipboard(self, text):
         """Set clipboard content using Windows API."""
         import ctypes
-
-        user32, kernel32 = InputSimulator._setup_win32_clipboard()
+        self._ensure_win32_api()
+        kernel32 = ctypes.windll.kernel32
+        user32 = ctypes.windll.user32
 
         CF_UNICODETEXT = 13
         GMEM_MOVEABLE = 0x0002
 
         encoded = text.encode('utf-16-le') + b'\x00\x00'
         h = kernel32.GlobalAlloc(GMEM_MOVEABLE, len(encoded))
+        if not h:
+            return
         ptr = kernel32.GlobalLock(h)
+        if not ptr:
+            kernel32.GlobalFree(h)
+            return
         ctypes.memmove(ptr, encoded, len(encoded))
         kernel32.GlobalUnlock(h)
 
@@ -111,12 +116,12 @@ class InputSimulator:
         else:
             kernel32.GlobalFree(h)
 
-    @staticmethod
-    def _win32_get_clipboard():
+    def _win32_get_clipboard(self):
         """Get clipboard text content using Windows API. Returns None on failure."""
         import ctypes
-
-        user32, kernel32 = InputSimulator._setup_win32_clipboard()
+        self._ensure_win32_api()
+        kernel32 = ctypes.windll.kernel32
+        user32 = ctypes.windll.user32
 
         CF_UNICODETEXT = 13
         result = None
@@ -131,6 +136,10 @@ class InputSimulator:
             user32.CloseClipboard()
         return result
 
+    # Delay (in seconds) to wait for the paste operation to complete
+    # before restoring the original clipboard content.
+    _PASTE_SETTLE_DELAY = 0.2
+
     def _typewrite_clipboard(self, text):
         """
         Insert text by pasting from the clipboard (Ctrl+V).
@@ -144,11 +153,11 @@ class InputSimulator:
             return self._typewrite_pynput(text, 0.005)
 
         import ctypes
+        user32 = ctypes.windll.user32
 
         VK_CONTROL = 0x11
         VK_V = 0x56
         KEYEVENTF_KEYUP = 0x0002
-        user32 = ctypes.windll.user32
 
         old_clipboard = self._win32_get_clipboard()
 
@@ -161,7 +170,7 @@ class InputSimulator:
             user32.keybd_event(VK_V, 0, KEYEVENTF_KEYUP, 0)
             user32.keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, 0)
 
-            time.sleep(0.2)
+            time.sleep(self._PASTE_SETTLE_DELAY)
         finally:
             if old_clipboard is not None:
                 try:

@@ -263,11 +263,15 @@ class KeyChord:
 
     def is_active(self) -> bool:
         """Check if all keys in the chord are currently pressed."""
+        return self.would_activate(self.pressed_keys)
+
+    def would_activate(self, pressed: Set[KeyCode]) -> bool:
+        """Check if a given set of pressed keys would satisfy this chord."""
         for key in self.keys:
             if isinstance(key, frozenset):
-                if not any(k in self.pressed_keys for k in key):
+                if not any(k in pressed for k in key):
                     return False
-            elif key not in self.pressed_keys:
+            elif key not in pressed:
                 return False
         return True
 
@@ -783,14 +787,15 @@ class PynputBackend(InputBackend):
             self._vk_map = self._build_vk_map()
 
         self._last_vk = None
+        self._pressed_vks.clear()
 
         listener_kwargs = {
             'on_press': self._on_keyboard_press,
             'on_release': self._on_keyboard_release,
         }
-        # On Windows, use event_filter to capture raw virtual key codes
-        # before pynput translates them (pynput loses vk when it converts to char)
-        # and to suppress activation-combo keys from reaching other applications.
+        # On Windows, attach a low-level event filter (via pynput's
+        # win32_event_filter option) to capture raw virtual key codes and
+        # suppress activation-combo keys from reaching other applications.
         if sys.platform == 'win32':
             listener_kwargs['win32_event_filter'] = self._win32_event_filter
 
@@ -810,12 +815,32 @@ class PynputBackend(InputBackend):
             self.mouse_listener.stop()
             self.mouse_listener = None
 
-    def _win32_event_filter(self, msg, data):
-        """Intercept raw Win32 keyboard events to capture the virtual key code
-        and suppress activation-combo keys from reaching other applications.
+    _MODIFIER_VKS = {
+        0xA0, 0xA1,  # VK_LSHIFT / VK_RSHIFT
+        0xA2, 0xA3,  # VK_LCONTROL / VK_RCONTROL
+        0xA4, 0xA5,  # VK_LMENU / VK_RMENU  (Alt)
+        0x5B, 0x5C,  # VK_LWIN / VK_RWIN
+    }
 
-        Returning False suppresses the event from BOTH the OS and pynput callbacks,
-        so we must manually call on_input_event when suppressing.
+    def _win32_event_filter(self, msg, data):
+        """Intercept raw Win32 keyboard events for two purposes:
+
+        1. Capture the virtual key code (vk) before pynput's ToUnicode() call
+           discards it (pynput creates KeyCode(char=..., vk=None) for character
+           keys, making layout-independent hotkey matching impossible).
+        2. Suppress non-modifier keys that complete the activation combo so they
+           don't produce characters in the focused application.
+
+        Suppression uses pynput's internal SuppressException (pynput 1.7.6,
+        pynput._util.win32.SystemHook).  The exception propagates through
+        pynput's hook chain and causes the Win32 hook callback to return 1,
+        which tells Windows to drop the event.  Since pynput callbacks are also
+        skipped, we manually fire on_input_event before raising.
+
+        This filter is only attached on Windows (sys.platform == 'win32').
+
+        Note: _last_vk and _pressed_vks are accessed exclusively from pynput's
+        listener thread, so no synchronization is needed.
         """
         vk = data.vkCode
         self._last_vk = vk
@@ -825,7 +850,6 @@ class PynputBackend(InputBackend):
         WM_KEYUP = 0x0101
         WM_SYSKEYUP = 0x0105
 
-        # Track currently pressed virtual key codes
         is_down = msg in (WM_KEYDOWN, WM_SYSKEYDOWN)
         is_up = msg in (WM_KEYUP, WM_SYSKEYUP)
 
@@ -834,45 +858,25 @@ class PynputBackend(InputBackend):
         elif is_up:
             self._pressed_vks.discard(vk)
 
-        # Suppress non-modifier keys that complete the activation combo
+        # Suppress non-modifier key-down that completes the activation combo
         if (is_down
                 and self._key_chord is not None
-                and self._vk_map is not None):
-            MODIFIER_VKS = {
-                0xA0, 0xA1,  # Shift L/R
-                0xA2, 0xA3,  # Ctrl L/R
-                0xA4, 0xA5,  # Alt L/R
-                0x5B, 0x5C,  # Win L/R
+                and self._vk_map is not None
+                and vk not in self._MODIFIER_VKS):
+            # Translate all currently pressed vks to KeyCodes
+            test_pressed = {
+                kc for pvk in self._pressed_vks
+                if (kc := self._vk_map.get(pvk)) is not None
             }
-            if vk not in MODIFIER_VKS:
-                test_pressed = set()
-                for pressed_vk in self._pressed_vks:
-                    kc = self._vk_map.get(pressed_vk)
-                    if kc:
-                        test_pressed.add(kc)
+            if test_pressed and self._key_chord.would_activate(test_pressed):
+                key_code = self._vk_map.get(vk)
+                if key_code:
+                    self.on_input_event((key_code, InputEvent.KEY_PRESS))
+                # pynput treats SuppressException as handled — listener keeps running
+                from pynput._util.win32 import SystemHook
+                raise SystemHook.SuppressException()
 
-                would_activate = bool(test_pressed)
-                for chord_key in self._key_chord.keys:
-                    if isinstance(chord_key, frozenset):
-                        if not any(k in test_pressed for k in chord_key):
-                            would_activate = False
-                            break
-                    elif chord_key not in test_pressed:
-                        would_activate = False
-                        break
-
-                if would_activate:
-                    # Manually fire on_input_event before suppressing,
-                    # because SuppressException prevents pynput callbacks
-                    key_code = self._vk_map.get(vk)
-                    if key_code:
-                        self.on_input_event((key_code, InputEvent.KEY_PRESS))
-                    # Raise SuppressException to suppress from OS
-                    # (pynput treats this as a handled exception — listener keeps running)
-                    from pynput._util.win32 import SystemHook
-                    raise SystemHook.SuppressException()
-
-        # Handle key-up for keys that are part of the activation chord
+        # Forward key-up for keys tracked by the activation chord
         if (is_up
                 and self._key_chord is not None
                 and self._vk_map is not None):
