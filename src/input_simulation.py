@@ -51,6 +51,18 @@ class InputSimulator:
             os.kill(self.dotool_process.pid, signal.SIGINT)
             self.dotool_process = None
 
+    def release_held_modifiers(self):
+        """Release any physically held modifier keys to prevent interference with typing."""
+        if hasattr(self, 'keyboard') and self.keyboard:
+            for mod_key in (PynputKey.ctrl_l, PynputKey.ctrl_r,
+                            PynputKey.shift_l, PynputKey.shift_r,
+                            PynputKey.alt_l, PynputKey.alt_r,
+                            PynputKey.cmd_l, PynputKey.cmd_r):
+                try:
+                    self.keyboard.release(mod_key)
+                except Exception:
+                    pass
+
     def typewrite(self, text):
         """
         Simulate typing the given text. Uses clipboard for long text and keystrokes for short text.

@@ -313,20 +313,9 @@ class KeyListener:
         """Initialize the KeyListener with backends and activation keys."""
         self.backends = []
         self.active_backend = None
-        self.main_key_chord = None
-        self.llm_key_chord = None
-        self.llm_instruction_key_chord = None
-        self.text_cleanup_chord = None
-        self.callbacks = {
-            "on_activate": [],
-            "on_deactivate": [],
-            "on_activate_with_llm": [],
-            "on_deactivate_with_llm": [],
-            "on_activate_with_llm_instruction": [],
-            "on_deactivate_with_llm_instruction": [],
-            "on_text_cleanup": []
-        }
-        self.load_activation_keys()
+        self.key_chords: dict[str, KeyChord] = {}
+        self.callbacks: dict[str, dict[str, list]] = {}
+        self.load_key_chords()
         self.initialize_backends()
         self.select_backend_from_config()
 
@@ -379,9 +368,9 @@ class KeyListener:
             raise ValueError(f"Backend {backend_class.__name__} is not available")
 
     def _sync_chord_to_backend(self):
-        """Pass the current KeyChord to the active backend for event suppression."""
-        if self.active_backend and hasattr(self.active_backend, '_key_chord'):
-            self.active_backend._key_chord = self.key_chord
+        """Pass the current KeyChords to the active backend for event suppression."""
+        if self.active_backend and hasattr(self.active_backend, '_key_chords'):
+            self.active_backend._key_chords = self.key_chords
 
     def update_backend(self):
         """Update the active backend based on current configuration."""
@@ -399,22 +388,39 @@ class KeyListener:
         if self.active_backend:
             self.active_backend.stop()
 
-    def load_activation_keys(self):
-        """Load activation keys from configuration."""
-        main_key = ConfigManager.get_config_value('recording_options', 'activation_key')
+    def load_key_chords(self):
+        """Load all key chords from configuration."""
+        self.key_chords.clear()
+
+        activation_key = ConfigManager.get_config_value('recording_options', 'activation_key')
+        keys = self.parse_key_combination(activation_key)
+        self.register_chord("activation", keys)
+
+        repaste_key = ConfigManager.get_config_value('recording_options', 'repaste_key')
+        if repaste_key:
+            keys = self.parse_key_combination(repaste_key)
+            self.register_chord("repaste", keys)
+
         llm_key = ConfigManager.get_config_value('recording_options', 'llm_cleanup_key')
+        if llm_key:
+            keys = self.parse_key_combination(llm_key)
+            self.register_chord("llm_cleanup", keys)
+
         llm_instruction_key = ConfigManager.get_config_value('recording_options', 'llm_instruction_key')
+        if llm_instruction_key:
+            keys = self.parse_key_combination(llm_instruction_key)
+            self.register_chord("llm_instruction", keys)
+
         text_cleanup_key = ConfigManager.get_config_value('recording_options', 'text_cleanup_key')
-        
-        main_keys = self.parse_key_combination(main_key)
-        llm_keys = self.parse_key_combination(llm_key)
-        llm_instruction_keys = self.parse_key_combination(llm_instruction_key)
-        text_cleanup_keys = self.parse_key_combination(text_cleanup_key)
-        
-        self.main_key_chord = KeyChord(main_keys)
-        self.llm_key_chord = KeyChord(llm_keys)
-        self.llm_instruction_key_chord = KeyChord(llm_instruction_keys)
-        self.text_cleanup_chord = KeyChord(text_cleanup_keys)
+        if text_cleanup_key:
+            keys = self.parse_key_combination(text_cleanup_key)
+            self.register_chord("text_cleanup", keys)
+
+    def register_chord(self, name: str, keys: Set[KeyCode | frozenset[KeyCode]]):
+        """Register a named key chord."""
+        self.key_chords[name] = KeyChord(keys)
+        if name not in self.callbacks:
+            self.callbacks[name] = {"on_activate": [], "on_deactivate": []}
 
     def parse_key_combination(self, combination_string: str) -> Set[KeyCode | frozenset[KeyCode]]:
         """Parse a string representation of key combination into a set of KeyCodes."""
@@ -481,64 +487,41 @@ class KeyListener:
         
         return keys
 
+    def set_activation_keys(self, keys: Set[KeyCode]):
+        """Set the activation keys for the KeyChord."""
+        self.register_chord("activation", keys)
+
     def on_input_event(self, event):
-        """Handle input events and trigger callbacks if either key chord becomes active or inactive."""
-        if not self.active_backend:
+        """Handle input events and trigger callbacks if any key chord becomes active or inactive."""
+        if not self.key_chords or not self.active_backend:
             return
 
         key, event_type = event
 
-        # Check main activation chord
-        if self.main_key_chord:
-            was_active = self.main_key_chord.is_active()
-            is_active = self.main_key_chord.update(key, event_type)
+        for chord_name, chord in self.key_chords.items():
+            was_active = chord.is_active()
+            is_active = chord.update(key, event_type)
 
             if not was_active and is_active:
-                self._trigger_callbacks("on_activate")
+                self._trigger_callbacks(chord_name, "on_activate")
             elif was_active and not is_active:
-                self._trigger_callbacks("on_deactivate")
+                self._trigger_callbacks(chord_name, "on_deactivate")
 
-        # Check LLM cleanup chord
-        if self.llm_key_chord:
-            was_active_llm = self.llm_key_chord.is_active()
-            is_active_llm = self.llm_key_chord.update(key, event_type)
+    def add_callback(self, chord_name: str, event: str, callback: Callable):
+        """Add a callback function for a specific chord and event."""
+        if chord_name not in self.callbacks:
+            self.callbacks[chord_name] = {"on_activate": [], "on_deactivate": []}
+        if event in self.callbacks[chord_name]:
+            self.callbacks[chord_name][event].append(callback)
 
-            if not was_active_llm and is_active_llm:
-                self._trigger_callbacks("on_activate_with_llm")
-            elif was_active_llm and not is_active_llm:
-                self._trigger_callbacks("on_deactivate_with_llm")
-
-        # Check LLM instruction chord
-        if self.llm_instruction_key_chord:
-            was_active_llm_instruction = self.llm_instruction_key_chord.is_active()
-            is_active_llm_instruction = self.llm_instruction_key_chord.update(key, event_type)
-
-            if not was_active_llm_instruction and is_active_llm_instruction:
-                self._trigger_callbacks("on_activate_with_llm_instruction")
-            elif was_active_llm_instruction and not is_active_llm_instruction:
-                self._trigger_callbacks("on_deactivate_with_llm_instruction")
-
-        # Check text selection cleanup chord
-        if self.text_cleanup_chord:
-            was_active_text = self.text_cleanup_chord.is_active()
-            is_active_text = self.text_cleanup_chord.update(key, event_type)
-
-            if not was_active_text and is_active_text:
-                self._trigger_callbacks("on_text_cleanup")
-
-    def add_callback(self, event: str, callback: Callable):
-        """Add a callback function for a specific event."""
-        if event in self.callbacks:
-            self.callbacks[event].append(callback)
-
-    def _trigger_callbacks(self, event: str):
-        """Trigger all callbacks associated with a specific event."""
-        for callback in self.callbacks.get(event, []):
+    def _trigger_callbacks(self, chord_name: str, event: str):
+        """Trigger all callbacks associated with a specific chord and event."""
+        for callback in self.callbacks.get(chord_name, {}).get(event, []):
             callback()
 
     def update_activation_keys(self):
-        """Update activation keys from the current configuration."""
-        self.load_activation_keys()
+        """Update all key chords from the current configuration."""
+        self.load_key_chords()
         self._sync_chord_to_backend()
 
 class EvdevBackend(InputBackend):
@@ -949,7 +932,7 @@ class PynputBackend(InputBackend):
         self.keyboard = None
         self.mouse = None
         self.key_map = None
-        self._key_chord = None
+        self._key_chords = {}
         self._pressed_vks = set()
 
     def start(self):
@@ -1015,9 +998,9 @@ class PynputBackend(InputBackend):
         elif is_up:
             self._pressed_vks.discard(vk)
 
-        # Suppress non-modifier keys that complete the activation combo
+        # Suppress non-modifier keys that complete any registered chord
         if (is_down
-                and self._key_chord is not None
+                and self._key_chords
                 and self._vk_map is not None):
             MODIFIER_VKS = {
                 0xA0, 0xA1,  # Shift L/R
@@ -1032,17 +1015,22 @@ class PynputBackend(InputBackend):
                     if kc:
                         test_pressed.add(kc)
 
-                would_activate = bool(test_pressed)
-                for chord_key in self._key_chord.keys:
-                    if isinstance(chord_key, frozenset):
-                        if not any(k in test_pressed for k in chord_key):
+                any_would_activate = False
+                for chord in self._key_chords.values():
+                    would_activate = bool(test_pressed)
+                    for chord_key in chord.keys:
+                        if isinstance(chord_key, frozenset):
+                            if not any(k in test_pressed for k in chord_key):
+                                would_activate = False
+                                break
+                        elif chord_key not in test_pressed:
                             would_activate = False
                             break
-                    elif chord_key not in test_pressed:
-                        would_activate = False
+                    if would_activate:
+                        any_would_activate = True
                         break
 
-                if would_activate:
+                if any_would_activate:
                     # Manually fire on_input_event before suppressing,
                     # because SuppressException prevents pynput callbacks
                     key_code = self._vk_map.get(vk)
@@ -1053,12 +1041,12 @@ class PynputBackend(InputBackend):
                     from pynput._util.win32 import SystemHook
                     raise SystemHook.SuppressException()
 
-        # Handle key-up for keys that are part of the activation chord
+        # Handle key-up for keys that are part of any registered chord
         if (is_up
-                and self._key_chord is not None
+                and self._key_chords
                 and self._vk_map is not None):
             key_code = self._vk_map.get(vk)
-            if key_code and key_code in self._key_chord.pressed_keys:
+            if key_code and any(key_code in chord.pressed_keys for chord in self._key_chords.values()):
                 self.on_input_event((key_code, InputEvent.KEY_RELEASE))
 
         return True

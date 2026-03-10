@@ -46,15 +46,17 @@ class WhisperWriterApp(QObject):
         Initialize the components of the application.
         """
         self.input_simulator = InputSimulator()
+        self.last_transcription = None
 
         self.key_listener = KeyListener()
-        self.key_listener.add_callback("on_activate", self.on_activation)
-        self.key_listener.add_callback("on_activate_with_llm", self.on_activation_with_llm_cleanup)
-        self.key_listener.add_callback("on_activate_with_llm_instruction", self.on_activation_with_llm_instruction)
-        self.key_listener.add_callback("on_deactivate", self.on_deactivation)
-        self.key_listener.add_callback("on_deactivate_with_llm", self.on_deactivation_with_llm)
-        self.key_listener.add_callback("on_deactivate_with_llm_instruction", self.on_deactivation_with_llm_instruction)
-        self.key_listener.add_callback("on_text_cleanup", self.handle_text_cleanup)
+        self.key_listener.add_callback("activation", "on_activate", self.on_activation)
+        self.key_listener.add_callback("activation", "on_deactivate", self.on_deactivation)
+        self.key_listener.add_callback("repaste", "on_activate", self.on_repaste)
+        self.key_listener.add_callback("llm_cleanup", "on_activate", self.on_activation_with_llm_cleanup)
+        self.key_listener.add_callback("llm_cleanup", "on_deactivate", self.on_deactivation_with_llm)
+        self.key_listener.add_callback("llm_instruction", "on_activate", self.on_activation_with_llm_instruction)
+        self.key_listener.add_callback("llm_instruction", "on_deactivate", self.on_deactivation_with_llm_instruction)
+        self.key_listener.add_callback("text_cleanup", "on_activate", self.handle_text_cleanup)
 
         model_options = ConfigManager.get_config_section('model_options')
         model_path = model_options.get('local', {}).get('model_path')
@@ -206,6 +208,8 @@ class WhisperWriterApp(QObject):
 
     def on_transcription_complete(self, result):
         """Process transcription with or without LLM based on activation type."""
+        if result:
+            self.last_transcription = result
         try:
             # Temporarily disable key listener
             if self.key_listener:
@@ -362,7 +366,9 @@ class WhisperWriterApp(QObject):
                             pass
 
                     # Clear the key chord state
-                    self.key_listener.text_cleanup_chord.pressed_keys.clear()
+                    text_cleanup = self.key_listener.key_chords.get("text_cleanup")
+                    if text_cleanup:
+                        text_cleanup.pressed_keys.clear()
 
                 except Exception as e:
                     ConfigManager.console_print(f"Error simulating keyboard: {str(e)}")
@@ -374,6 +380,17 @@ class WhisperWriterApp(QObject):
         finally:
             # Ensure key listener is restarted
             self.key_listener.start()
+
+    def on_repaste(self):
+        """
+        Re-insert the last transcribed text.
+        """
+        if self.result_thread and self.result_thread.isRunning():
+            return
+        if self.last_transcription:
+            self.input_simulator.release_held_modifiers()
+            time.sleep(0.05)
+            self.input_simulator.typewrite(self.last_transcription)
 
     def run(self):
         """
