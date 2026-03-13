@@ -12,6 +12,7 @@ from threading import Event
 from transcription import transcribe
 from utils import ConfigManager
 from media_controller import MediaController
+from errors import MissingApiKeyError
 
 
 class ResultThread(QThread):
@@ -32,6 +33,7 @@ class ResultThread(QThread):
 
     statusSignal = pyqtSignal(str, bool)
     resultSignal = pyqtSignal(str)
+    errorSignal = pyqtSignal(str)
 
     def __init__(self, local_model=None, use_llm=False):
         """
@@ -118,6 +120,10 @@ class ResultThread(QThread):
             if ConfigManager.get_config_value('misc', 'pause_media_during_recording'):
                 self.media_controller.resume_media()
 
+        except MissingApiKeyError as e:
+            ConfigManager.console_print(f"Missing API key: {str(e)}")
+            self.statusSignal.emit('error', self.use_llm)
+            self.errorSignal.emit(str(e))
         except Exception as e:
             ConfigManager.console_print(f"Error in ResultThread: {str(e)}")
             traceback.print_exc()

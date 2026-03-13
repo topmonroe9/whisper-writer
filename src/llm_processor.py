@@ -3,6 +3,7 @@ import json
 import requests
 from utils import ConfigManager
 from keyring_manager import KeyringManager
+from errors import MissingApiKeyError
 from openai import OpenAI
 from anthropic import Anthropic
 import google.generativeai as genai
@@ -105,7 +106,10 @@ class LLMProcessor:
         
         ConfigManager.console_print(f"Processing text with {api_type} using {mode} model: {model}")
         ConfigManager.console_print(f"Using system message: {system_message}")
-        
+
+        if api_type != 'ollama' and not self.api_key:
+            raise MissingApiKeyError(f"LLM ({api_type})")
+
         if api_type == 'claude':
             return self._process_claude(text, system_message, model)
         elif api_type == 'chatgpt':

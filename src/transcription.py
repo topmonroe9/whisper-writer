@@ -13,6 +13,7 @@ from groq import Groq
 from utils import ConfigManager
 from keyring_manager import KeyringManager
 from text_processor import TextProcessor
+from errors import MissingApiKeyError
 
 VOSK_MODEL_URLS = {
     'vosk-model-small-en-us-0.15': 'https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip',
@@ -291,8 +292,7 @@ def transcribe_with_openai(audio_data, api_options):
     try:
         api_key = KeyringManager.get_api_key("openai_transcription")
         if not api_key:
-            ConfigManager.console_print("OpenAI API key not found in keyring")
-            return ''
+            raise MissingApiKeyError("OpenAI Transcription")
             
         # Use base_url from config, or fallback to OpenAI's API
         base_url = api_options.get('base_url') or 'https://api.openai.com/v1'
@@ -337,8 +337,7 @@ def transcribe_with_deepgram(audio_data, api_options):
     try:
         api_key = KeyringManager.get_api_key("deepgram_transcription")
         if not api_key:
-            ConfigManager.console_print("Deepgram API key not found in keyring")
-            return ''
+            raise MissingApiKeyError("Deepgram")
             
         # Convert audio to WAV format
         byte_io = io.BytesIO()
@@ -391,8 +390,7 @@ def transcribe_with_groq(audio_data, api_options):
     try:
         api_key = KeyringManager.get_api_key("groq_transcription")
         if not api_key:
-            ConfigManager.console_print("Groq API key not found in keyring")
-            return ''
+            raise MissingApiKeyError("Groq Transcription")
             
         # Convert audio to WAV format
         byte_io = io.BytesIO()

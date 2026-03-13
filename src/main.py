@@ -17,6 +17,7 @@ from input_simulation import InputSimulator
 from utils import ConfigManager
 from llm_processor import LLMProcessor
 from paths import get_asset_path, is_frozen
+from errors import MissingApiKeyError
 
 
 class WhisperWriterApp(QObject):
@@ -202,6 +203,7 @@ class WhisperWriterApp(QObject):
             self.result_thread.statusSignal.connect(self.status_window.updateStatus)
             self.status_window.closeSignal.connect(self.stop_result_thread)
         self.result_thread.resultSignal.connect(self.on_transcription_complete)
+        self.result_thread.errorSignal.connect(self.on_error)
         self.result_thread.start()
 
     def stop_result_thread(self):
@@ -210,6 +212,18 @@ class WhisperWriterApp(QObject):
         """
         if self.result_thread and self.result_thread.isRunning():
             self.result_thread.stop()
+
+    def on_error(self, message):
+        """Show an error notification via the system tray icon."""
+        if hasattr(self, 'tray_icon') and self.tray_icon:
+            self.tray_icon.showMessage(
+                'WhisperWriter',
+                message,
+                QSystemTrayIcon.Warning,
+                5000,
+            )
+        if self.key_listener:
+            self.key_listener.start()
 
     def on_transcription_complete(self, result):
         """Process transcription with or without LLM based on activation type."""
@@ -268,6 +282,9 @@ class WhisperWriterApp(QObject):
                     else:
                         ConfigManager.console_print("LLM processing failed, using original transcription")
                     
+                except MissingApiKeyError as e:
+                    self.on_error(str(e))
+                    return result
                 except Exception as e:
                     ConfigManager.console_print(f"Error processing text through LLM: {str(e)}")
                     return result
