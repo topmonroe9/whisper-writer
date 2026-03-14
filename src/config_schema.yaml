@@ -302,6 +302,6 @@ misc:
     type: bool
     description: "Set to true to play a noise after the transcription has been typed out."
   pause_media_during_recording:
-    value: false
+    value: true
     type: bool
     description: "Automatically pause/resume media during recording"

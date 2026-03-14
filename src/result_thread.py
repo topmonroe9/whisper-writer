@@ -76,8 +76,7 @@ class ResultThread(QThread):
 
             # Only control media if the setting is enabled
             if ConfigManager.get_config_value('misc', 'pause_media_during_recording'):
-                self.media_controller.pause_media()
-                self.media_controller.was_playing = True
+                self.media_controller.fade_out(duration=0.5)
 
             self.mutex.lock()
             self.is_recording = True
@@ -86,6 +85,10 @@ class ResultThread(QThread):
             self.statusSignal.emit('recording', self.use_llm)
             ConfigManager.console_print('Recording...')
             audio_data = self._record_audio()
+
+            # Resume media right after recording ends, don't wait for transcription
+            if ConfigManager.get_config_value('misc', 'pause_media_during_recording'):
+                self.media_controller.fade_in(duration=0.5)
 
             if not self.is_running:
                 return
@@ -116,9 +119,6 @@ class ResultThread(QThread):
             self.is_transcribing = False
             self.last_audio_time = time.time()
 
-            # Only resume media if the setting is enabled
-            if ConfigManager.get_config_value('misc', 'pause_media_during_recording'):
-                self.media_controller.resume_media()
 
         except MissingApiKeyError as e:
             ConfigManager.console_print(f"Missing API key: {str(e)}")

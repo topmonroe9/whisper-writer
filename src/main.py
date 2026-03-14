@@ -1,3 +1,4 @@
+import ctypes
 import os
 import sys
 import time
@@ -26,6 +27,13 @@ class WhisperWriterApp(QObject):
         Initialize the application, opening settings window if no configuration file is found.
         """
         super().__init__()
+
+        # Single instance check via Windows named mutex
+        self.mutex_handle = ctypes.windll.kernel32.CreateMutexW(None, False, "WhisperWriter_SingleInstance")
+        if ctypes.windll.kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
+            ctypes.windll.user32.MessageBoxW(0, "WhisperWriter is already running.", "WhisperWriter", 0x40)
+            sys.exit(0)
+
         self.app = QApplication(sys.argv)
         self.app.setWindowIcon(QIcon(get_asset_path('ww-logo.png')))
 

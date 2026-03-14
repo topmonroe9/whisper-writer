@@ -109,10 +109,90 @@ class MediaController:
         except Exception as e:
             print(f"Error restoring volumes: {str(e)}")
 
+    def fade_out(self, duration=0.5, steps=10):
+        """Gradually reduce volume of all audio sessions to 0."""
+        try:
+            if self.system == 'Windows':
+                pythoncom.CoInitialize()
+                try:
+                    sessions = AudioUtilities.GetAllSessions()
+                    # Collect volume controls and original levels in one pass
+                    self._fade_sessions = []
+                    self.original_volumes.clear()
+                    for session in sessions:
+                        if session.Process and session.Process.name() not in ['python.exe', 'pythonw.exe']:
+                            try:
+                                vol_ctrl = session.SimpleAudioVolume
+                                orig = vol_ctrl.GetMasterVolume()
+                                name = session.Process.name()
+                                self._fade_sessions.append((name, vol_ctrl, orig))
+                                self.original_volumes[name] = orig
+                                ConfigManager.console_print(f"Fade-out: saved {name} vol={orig:.2f}")
+                            except Exception as e:
+                                ConfigManager.console_print(f"Fade-out: skip session: {e}")
+
+                    if not self._fade_sessions:
+                        ConfigManager.console_print("Fade-out: no audio sessions found")
+                        return
+
+                    interval = duration / steps
+                    for step in range(1, steps + 1):
+                        factor = 1.0 - (step / steps)
+                        for name, vol_ctrl, orig in self._fade_sessions:
+                            try:
+                                vol_ctrl.SetMasterVolume(orig * factor, None)
+                            except Exception:
+                                pass
+                        time.sleep(interval)
+                    ConfigManager.console_print("Fade-out complete")
+                finally:
+                    pythoncom.CoUninitialize()
+        except Exception as e:
+            ConfigManager.console_print(f"Error during fade-out: {str(e)}")
+
+    def fade_in(self, duration=0.5, steps=10):
+        """Gradually restore original volumes."""
+        try:
+            if self.system == 'Windows':
+                if not self.original_volumes:
+                    ConfigManager.console_print("Fade-in: no saved volumes")
+                    return
+
+                pythoncom.CoInitialize()
+                try:
+                    # Re-enumerate sessions and match by name to stored originals
+                    sessions = AudioUtilities.GetAllSessions()
+                    fade_sessions = []
+                    for session in sessions:
+                        if session.Process and session.Process.name() in self.original_volumes:
+                            try:
+                                vol_ctrl = session.SimpleAudioVolume
+                                orig = self.original_volumes[session.Process.name()]
+                                fade_sessions.append((session.Process.name(), vol_ctrl, orig))
+                            except Exception:
+                                pass
+
+                    interval = duration / steps
+                    for step in range(1, steps + 1):
+                        factor = step / steps
+                        for name, vol_ctrl, orig in fade_sessions:
+                            try:
+                                vol_ctrl.SetMasterVolume(orig * factor, None)
+                            except Exception:
+                                pass
+                        time.sleep(interval)
+                    ConfigManager.console_print("Fade-in complete")
+                finally:
+                    pythoncom.CoUninitialize()
+                self.original_volumes.clear()
+                self._fade_sessions = []
+        except Exception as e:
+            ConfigManager.console_print(f"Error during fade-in: {str(e)}")
+
     def pause_media(self):
         """Handle media control based on settings"""
         self.initial_state_playing = self.is_audio_playing()
-        
+
         if self.initial_state_playing:
             print("Pausing media playback")
             self.keyboard.press(Key.media_play_pause)
@@ -130,7 +210,7 @@ class MediaController:
             self.keyboard.press(Key.media_play_pause)
             self.keyboard.release(Key.media_play_pause)
             time.sleep(0.1)
-        
+
         self.was_playing = False
         self.initial_state_playing = False
 
