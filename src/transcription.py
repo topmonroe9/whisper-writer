@@ -204,8 +204,12 @@ def create_local_model():
                                download_root=None if model_path else None)
             return ('whisper', model)
 
-def transcribe_local(audio_data, local_model=None):
-    """Transcribe audio using a local model (Whisper or Vosk)."""
+def transcribe_local(audio_data, local_model=None, progress_callback=None):
+    """Transcribe audio using a local model (Whisper or Vosk).
+
+    :param progress_callback: optional callable(processed_seconds, total_seconds)
+        invoked as the audio is processed, so the UI can show real progress.
+    """
     if not local_model:
         local_model = create_local_model()
     if not local_model:
@@ -232,24 +236,34 @@ def transcribe_local(audio_data, local_model=None):
         try:
             # Process with Vosk
             wf = wave.open(byte_io, "rb")
-            recognizer = KaldiRecognizer(model, wf.getframerate())
+            framerate = wf.getframerate()
+            total_frames = wf.getnframes()
+            total_seconds = (total_frames / framerate) if framerate else 0.0
+            frames_read = 0
+            recognizer = KaldiRecognizer(model, framerate)
             recognizer.SetWords(True)  # Enable word timing info
-            
+
             transcription = []
             while True:
                 data = wf.readframes(4000)
                 if len(data) == 0:
                     break
+                frames_read += 4000
                 if recognizer.AcceptWaveform(data):
                     result = json.loads(recognizer.Result())
                     if 'text' in result and result['text'].strip():
                         transcription.append(result['text'])
-                    
+                if progress_callback and total_seconds > 0:
+                    progress_callback(min(total_seconds, frames_read / framerate), total_seconds)
+
             # Get final bits of audio
             final_result = json.loads(recognizer.FinalResult())
             if 'text' in final_result and final_result['text'].strip():
                 transcription.append(final_result['text'])
-                
+
+            if progress_callback and total_seconds > 0:
+                progress_callback(total_seconds, total_seconds)
+
             return ' '.join(transcription)
             
         except Exception as e:
@@ -258,7 +272,7 @@ def transcribe_local(audio_data, local_model=None):
     else:
         # Existing Whisper transcription logic
         audio_data_float = audio_data.astype(np.float32) / 32768.0
-        response = model.transcribe(
+        segments, info = model.transcribe(
             audio=audio_data_float,
             language=model_options['common']['language'],
             initial_prompt=model_options['common']['initial_prompt'],
@@ -266,7 +280,18 @@ def transcribe_local(audio_data, local_model=None):
             temperature=model_options['common']['temperature'],
             vad_filter=model_options['local']['vad_filter'],
         )
-        return ''.join([segment.text for segment in list(response[0])])
+        # faster-whisper yields segments lazily, so iterating drives the actual
+        # work. Reporting progress per segment lets the UI show a real bar,
+        # which matters most for long recordings.
+        total_seconds = float(getattr(info, 'duration', 0.0) or 0.0)
+        texts = []
+        for segment in segments:
+            texts.append(segment.text)
+            if progress_callback and total_seconds > 0:
+                progress_callback(min(total_seconds, float(segment.end)), total_seconds)
+        if progress_callback and total_seconds > 0:
+            progress_callback(total_seconds, total_seconds)
+        return ''.join(texts)
 
 def transcribe_api(audio_data):
     """Transcribe audio using an API service (OpenAI, Deepgram, or Groq)."""
@@ -456,9 +481,12 @@ def post_process_transcription(transcription):
 
     return transcription
 
-def transcribe(audio_data, local_model=None):
+def transcribe(audio_data, local_model=None, progress_callback=None):
     """
-    Transcribe audio using either local model or API based on availability
+    Transcribe audio using either local model or API based on availability.
+
+    :param progress_callback: optional callable(processed_seconds, total_seconds)
+        used by local backends (Whisper/Vosk) to report incremental progress.
     """
     if HAS_FASTER_WHISPER:
         if audio_data is None:
@@ -473,7 +501,7 @@ def transcribe(audio_data, local_model=None):
             model_name = ConfigManager.get_config_value('model_options', 'local', 'model')
             device = ConfigManager.get_config_value('model_options', 'local', 'device')
             ConfigManager.console_print(f"Using local Whisper model: {model_name} on {device}")
-            transcription = transcribe_local(audio_data, local_model)
+            transcription = transcribe_local(audio_data, local_model, progress_callback)
     else:
         ConfigManager.console_print("Using OpenAI Whisper API for transcription (faster-whisper not available)")
         transcription = transcribe_api(audio_data)

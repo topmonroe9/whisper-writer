@@ -209,6 +209,8 @@ class WhisperWriterApp(QObject):
         self.result_thread = ResultThread(self.local_model, self.use_llm)
         if not ConfigManager.get_config_value('misc', 'hide_status_window'):
             self.result_thread.statusSignal.connect(self.status_window.updateStatus)
+            self.result_thread.volumeSignal.connect(self.status_window.updateVolume)
+            self.result_thread.transcriptionProgressSignal.connect(self.status_window.updateTranscriptionProgress)
             self.status_window.closeSignal.connect(self.stop_result_thread)
         self.result_thread.resultSignal.connect(self.on_transcription_complete)
         self.result_thread.errorSignal.connect(self.on_error)

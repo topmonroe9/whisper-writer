@@ -34,6 +34,8 @@ class ResultThread(QThread):
     statusSignal = pyqtSignal(str, bool)
     resultSignal = pyqtSignal(str)
     errorSignal = pyqtSignal(str)
+    volumeSignal = pyqtSignal(float)  # Normalized microphone level [0.0, 1.0]
+    transcriptionProgressSignal = pyqtSignal(float, float)  # (processed_seconds, total_seconds)
 
     def __init__(self, local_model=None, use_llm=False):
         """
@@ -67,6 +69,10 @@ class ResultThread(QThread):
         self.mutex.unlock()
         self.statusSignal.emit('idle', False)
         self.wait()
+
+    def _emit_transcription_progress(self, processed_seconds, total_seconds):
+        """Forward transcription progress (from the worker thread) to the UI."""
+        self.transcriptionProgressSignal.emit(float(processed_seconds), float(total_seconds))
 
     def run(self):
         """Main execution method for the thread."""
@@ -103,7 +109,8 @@ class ResultThread(QThread):
 
             # Time the transcription process
             start_time = time.time()
-            result = transcribe(audio_data, self.local_model)
+            result = transcribe(audio_data, self.local_model,
+                                progress_callback=self._emit_transcription_progress)
             end_time = time.time()
 
             transcription_time = end_time - start_time
@@ -179,6 +186,13 @@ class ResultThread(QThread):
                 frame = np.array(list(audio_buffer), dtype=np.int16)
                 audio_buffer.clear()
                 recording.extend(frame)
+
+                # Emit a normalized microphone level so the status window can
+                # show a live meter and detect prolonged silence. This stays
+                # fairly linear (silence detection relies on it); the meter
+                # widget applies its own perceptual boost for liveliness.
+                rms = float(np.sqrt(np.mean(frame.astype(np.float64) ** 2)))
+                self.volumeSignal.emit(min(1.0, (rms / 32768.0) * 14.0))
 
                 if initial_frames_to_skip > 0:
                     initial_frames_to_skip -= 1
