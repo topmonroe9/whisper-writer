@@ -70,3 +70,15 @@ def get_config_path() -> str:
 def get_env_path() -> str:
     """Return the absolute path to .env file (writable)."""
     return os.path.join(get_base_dir(), '.env')
+
+
+def get_history_path() -> str:
+    """Return the absolute path to history.json (writable).
+
+    In frozen mode: next to the exe.
+    In dev mode: <project_root>/src/history.json
+    """
+    if is_frozen():
+        return os.path.join(get_base_dir(), 'history.json')
+    else:
+        return os.path.join(get_base_dir(), 'src', 'history.json')

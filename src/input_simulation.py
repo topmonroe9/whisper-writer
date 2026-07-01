@@ -1,6 +1,7 @@
 import subprocess
 import os
 import signal
+import sys
 import time
 from pynput.keyboard import Controller as PynputController, Key as PynputKey
 
@@ -110,6 +111,95 @@ class InputSimulator:
         return user32, kernel32
 
     @staticmethod
+    def get_clipboard():
+        """Return the clipboard text content, cross-platform. None on failure."""
+        if sys.platform == 'win32':
+            return InputSimulator._win32_get_clipboard()
+        elif sys.platform == 'darwin':
+            return InputSimulator._macos_get_clipboard()
+        return None
+
+    @staticmethod
+    def set_clipboard(text):
+        """Set the clipboard text content, cross-platform."""
+        if sys.platform == 'win32':
+            InputSimulator._win32_set_clipboard(text)
+        elif sys.platform == 'darwin':
+            InputSimulator._macos_set_clipboard(text)
+
+    @staticmethod
+    def _macos_get_clipboard():
+        """Get clipboard text on macOS via pbpaste. Returns None on failure."""
+        try:
+            result = subprocess.run(['pbpaste'], capture_output=True)
+            if result.returncode == 0:
+                return result.stdout.decode('utf-8')
+        except Exception:
+            pass
+        return None
+
+    @staticmethod
+    def _macos_set_clipboard(text):
+        """Set clipboard text on macOS via pbcopy."""
+        try:
+            subprocess.run(['pbcopy'], input=text.encode('utf-8'), check=True)
+        except Exception:
+            pass
+
+    def _send_paste_shortcut(self):
+        """Send the OS paste shortcut: Cmd+V on macOS, Ctrl+V elsewhere."""
+        if sys.platform == 'win32':
+            import ctypes
+
+            VK_CONTROL = 0x11
+            VK_V = 0x56
+            KEYEVENTF_KEYUP = 0x0002
+            user32 = ctypes.windll.user32
+
+            user32.keybd_event(VK_CONTROL, 0, 0, 0)
+            user32.keybd_event(VK_V, 0, 0, 0)
+            user32.keybd_event(VK_V, 0, KEYEVENTF_KEYUP, 0)
+            user32.keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, 0)
+        else:
+            # macOS pastes with Cmd+V; Linux with Ctrl+V.
+            modifier = PynputKey.cmd if sys.platform == 'darwin' else PynputKey.ctrl
+            keyboard = getattr(self, 'keyboard', None) or PynputController()
+            keyboard.press(modifier)
+            keyboard.press('v')
+            keyboard.release('v')
+            keyboard.release(modifier)
+
+    def _paste_via_clipboard(self, text):
+        """Insert text by setting the clipboard and sending the paste shortcut,
+        restoring the user's previous clipboard contents afterwards.
+
+        Native on Windows (Ctrl+V) and macOS (Cmd+V). On other platforms,
+        falls back to character-by-character typing.
+        """
+        if sys.platform not in ('win32', 'darwin'):
+            interval = ConfigManager.get_config_value('post_processing', 'writing_key_press_delay')
+            if self.input_method in ('pynput', 'clipboard'):
+                self._typewrite_pynput(text, interval)
+            elif self.input_method == 'ydotool':
+                self._typewrite_ydotool(text, interval)
+            elif self.input_method == 'dotool':
+                self._typewrite_dotool(text, interval)
+            return
+
+        old_clipboard = self.get_clipboard()
+        try:
+            self.set_clipboard(text)
+            time.sleep(0.05)
+            self._send_paste_shortcut()
+            time.sleep(0.2)
+        finally:
+            if old_clipboard is not None:
+                try:
+                    self.set_clipboard(old_clipboard)
+                except Exception:
+                    pass
+
+    @staticmethod
     def _win32_set_clipboard(text):
         """Set clipboard content using Windows API."""
         import ctypes
@@ -154,88 +244,27 @@ class InputSimulator:
 
     def _typewrite_clipboard(self, text):
         """
-        Insert text by pasting from the clipboard (Ctrl+V).
-        Uses Windows API directly via ctypes — no external dependencies,
+        Insert text by pasting from the clipboard.
+        Uses the OS clipboard directly — no external dependencies,
         works with any keyboard layout, and handles Unicode correctly.
-        Windows only. Falls back to pynput on other platforms.
+        Native on Windows (Ctrl+V) and macOS (Cmd+V); falls back to pynput elsewhere.
         """
-        import sys
-        if sys.platform != 'win32':
-            print("Warning: 'clipboard' input method is Windows only. Falling back to pynput.")
+        if sys.platform not in ('win32', 'darwin'):
+            print("Warning: 'clipboard' input method is Windows/macOS only. Falling back to pynput.")
             return self._typewrite_pynput(text, 0.005)
 
-        import ctypes
-
-        VK_CONTROL = 0x11
-        VK_V = 0x56
-        KEYEVENTF_KEYUP = 0x0002
-        user32 = ctypes.windll.user32
-
-        old_clipboard = self._win32_get_clipboard()
-
-        try:
-            self._win32_set_clipboard(text)
-            time.sleep(0.05)
-
-            user32.keybd_event(VK_CONTROL, 0, 0, 0)
-            user32.keybd_event(VK_V, 0, 0, 0)
-            user32.keybd_event(VK_V, 0, KEYEVENTF_KEYUP, 0)
-            user32.keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, 0)
-
-            time.sleep(0.2)
-        finally:
-            if old_clipboard is not None:
-                try:
-                    self._win32_set_clipboard(old_clipboard)
-                except Exception:
-                    pass
+        self._paste_via_clipboard(text)
 
     def _paste_with_clipboard_preservation(self, text):
         """
         Paste text using the clipboard while preserving original clipboard content.
         Used for long text that exceeds the clipboard_threshold.
-        Uses ctypes on Windows, falls back to regular typing on other platforms.
+        Native on Windows/macOS, falls back to regular typing on other platforms.
 
         Args:
             text (str): The text to paste.
         """
-        import sys
-        if sys.platform != 'win32':
-            # On non-Windows, fall back to character-by-character typing
-            interval = ConfigManager.get_config_value('post_processing', 'writing_key_press_delay')
-            if self.input_method in ('pynput', 'clipboard'):
-                self._typewrite_pynput(text, interval)
-            elif self.input_method == 'ydotool':
-                self._typewrite_ydotool(text, interval)
-            elif self.input_method == 'dotool':
-                self._typewrite_dotool(text, interval)
-            return
-
-        import ctypes
-
-        VK_CONTROL = 0x11
-        VK_V = 0x56
-        KEYEVENTF_KEYUP = 0x0002
-        user32 = ctypes.windll.user32
-
-        old_clipboard = self._win32_get_clipboard()
-
-        try:
-            self._win32_set_clipboard(text)
-            time.sleep(0.05)
-
-            user32.keybd_event(VK_CONTROL, 0, 0, 0)
-            user32.keybd_event(VK_V, 0, 0, 0)
-            user32.keybd_event(VK_V, 0, KEYEVENTF_KEYUP, 0)
-            user32.keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, 0)
-
-            time.sleep(0.2)
-        finally:
-            if old_clipboard is not None:
-                try:
-                    self._win32_set_clipboard(old_clipboard)
-                except Exception:
-                    pass
+        self._paste_via_clipboard(text)
 
     def _typewrite_pynput(self, text, interval):
         """

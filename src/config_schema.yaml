@@ -305,3 +305,7 @@ misc:
     value: true
     type: bool
     description: "Automatically pause/resume media during recording"
+  transcription_history_size:
+    value: 25
+    type: int
+    description: "Number of recent transcriptions to keep in the tray history menu. Set to 0 to disable history."

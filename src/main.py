@@ -1,5 +1,6 @@
 import ctypes
 import os
+import subprocess
 import sys
 import time
 from audioplayer import AudioPlayer
@@ -17,6 +18,7 @@ from transcription import create_local_model
 from input_simulation import InputSimulator
 from utils import ConfigManager
 from llm_processor import LLMProcessor
+from transcription_history import TranscriptionHistory
 from paths import get_asset_path, is_frozen
 from errors import MissingApiKeyError
 
@@ -28,11 +30,7 @@ class WhisperWriterApp(QObject):
         """
         super().__init__()
 
-        # Single instance check via Windows named mutex
-        self.mutex_handle = ctypes.windll.kernel32.CreateMutexW(None, False, "WhisperWriter_SingleInstance")
-        if ctypes.windll.kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
-            ctypes.windll.user32.MessageBoxW(0, "WhisperWriter is already running.", "WhisperWriter", 0x40)
-            sys.exit(0)
+        self._enforce_single_instance()
 
         self.app = QApplication(sys.argv)
         self.app.setWindowIcon(QIcon(get_asset_path('ww-logo.png')))
@@ -51,12 +49,45 @@ class WhisperWriterApp(QObject):
             print('No valid configuration file found. Opening settings window...')
             self.settings_window.show()
 
+    def _enforce_single_instance(self):
+        """Ensure only one instance of WhisperWriter runs at a time (cross-platform).
+
+        Windows uses a named mutex; macOS/Linux use an exclusive lock on a file
+        in the temp directory (the lock is released automatically on process exit).
+        """
+        if sys.platform == 'win32':
+            self.mutex_handle = ctypes.windll.kernel32.CreateMutexW(None, False, "WhisperWriter_SingleInstance")
+            if ctypes.windll.kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
+                ctypes.windll.user32.MessageBoxW(0, "WhisperWriter is already running.", "WhisperWriter", 0x40)
+                sys.exit(0)
+        else:
+            import fcntl
+            import tempfile
+
+            lock_path = os.path.join(tempfile.gettempdir(), 'whisperwriter.lock')
+            # Keep the file object alive for the whole process so the lock is held.
+            self._lock_file = open(lock_path, 'w')
+            try:
+                fcntl.flock(self._lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError:
+                message = "WhisperWriter is already running."
+                if sys.platform == 'darwin':
+                    subprocess.run([
+                        'osascript', '-e',
+                        f'display dialog "{message}" buttons {{"OK"}} '
+                        f'with icon note with title "WhisperWriter"'
+                    ])
+                else:
+                    print(message)
+                sys.exit(0)
+
     def initialize_components(self):
         """
         Initialize the components of the application.
         """
         self.input_simulator = InputSimulator()
         self.last_transcription = None
+        self.history = TranscriptionHistory()
 
         self.key_listener = KeyListener()
         self.key_listener.add_callback("activation", "on_activate", self.on_activation)
@@ -88,6 +119,13 @@ class WhisperWriterApp(QObject):
 
         tray_menu = QMenu()
 
+        self.history_menu = QMenu('History', tray_menu)
+        # Rebuild the submenu each time it opens so it always reflects the latest history.
+        self.history_menu.aboutToShow.connect(self.populate_history_menu)
+        tray_menu.addMenu(self.history_menu)
+
+        tray_menu.addSeparator()
+
         settings_action = QAction('Settings', self.app)
         settings_action.triggered.connect(self.settings_window.show)
         tray_menu.addAction(settings_action)
@@ -98,6 +136,47 @@ class WhisperWriterApp(QObject):
 
         self.tray_icon.setContextMenu(tray_menu)
         self.tray_icon.show()
+
+    def populate_history_menu(self):
+        """Rebuild the history submenu with the most recent transcriptions."""
+        self.history_menu.clear()
+        entries = self.history.get_all()
+
+        if not entries:
+            empty_action = QAction('(No transcriptions yet)', self.history_menu)
+            empty_action.setEnabled(False)
+            self.history_menu.addAction(empty_action)
+            return
+
+        for entry in entries:
+            action = QAction(self._format_history_label(entry), self.history_menu)
+            action.setToolTip(entry)
+            # Bind the full text via a default argument so each action keeps its own entry.
+            action.triggered.connect(lambda checked=False, text=entry: self.paste_history_entry(text))
+            self.history_menu.addAction(action)
+
+        self.history_menu.addSeparator()
+        clear_action = QAction('Clear History', self.history_menu)
+        clear_action.triggered.connect(lambda: self.history.clear())
+        self.history_menu.addAction(clear_action)
+
+    @staticmethod
+    def _format_history_label(text, max_length=50):
+        """Return a single-line, shortened menu label for a history entry."""
+        single_line = ' '.join(text.split())
+        if len(single_line) > max_length:
+            single_line = single_line[:max_length].rstrip() + '…'
+        # Escape ampersands so Qt doesn't interpret them as keyboard mnemonics.
+        return single_line.replace('&', '&&')
+
+    def paste_history_entry(self, text):
+        """Insert a transcription from history into the currently focused window."""
+        if self.result_thread and self.result_thread.isRunning():
+            return
+        self.input_simulator.release_held_modifiers()
+        # Give focus a moment to return to the previously active window after the menu closes.
+        time.sleep(0.1)
+        self.input_simulator.typewrite(text)
 
     def cleanup(self):
         if self.key_listener:
@@ -299,6 +378,9 @@ class WhisperWriterApp(QObject):
                     ConfigManager.console_print(f"Error processing text through LLM: {str(e)}")
                     return result
 
+            # Save the final (possibly LLM-processed) text to the tray history.
+            self.history.add(result)
+
             # Type the result
             self.input_simulator.typewrite(result)
             
@@ -321,8 +403,8 @@ class WhisperWriterApp(QObject):
             return
 
         try:
-            # Get clipboard text using our ctypes helpers
-            clipboard_text = InputSimulator._win32_get_clipboard()
+            # Get clipboard text (cross-platform)
+            clipboard_text = InputSimulator.get_clipboard()
 
             if not clipboard_text:
                 ConfigManager.console_print("No text in clipboard")
@@ -367,9 +449,11 @@ class WhisperWriterApp(QObject):
                 try:
                     # Simulate keyboard events with proper cleanup
                     keyboard = Controller()
+                    # macOS pastes with Cmd+V; Windows/Linux with Ctrl+V.
+                    paste_modifier = Key.cmd if sys.platform == 'darwin' else Key.ctrl
 
-                    # Set the cleaned text to clipboard using ctypes
-                    InputSimulator._win32_set_clipboard(cleaned_text)
+                    # Set the cleaned text to clipboard (cross-platform)
+                    InputSimulator.set_clipboard(cleaned_text)
 
                     try:
                         # Delete selected text and paste cleaned text
@@ -377,7 +461,7 @@ class WhisperWriterApp(QObject):
                         keyboard.release(Key.delete)
                         time.sleep(0.1)  # Small delay after delete
 
-                        with keyboard.pressed(Key.ctrl):
+                        with keyboard.pressed(paste_modifier):
                             keyboard.press('v')
                             keyboard.release('v')
 
@@ -386,14 +470,14 @@ class WhisperWriterApp(QObject):
 
                     finally:
                         # Ensure all keys are released
-                        keyboard.release(Key.ctrl)
+                        keyboard.release(paste_modifier)
                         keyboard.release('v')
                         keyboard.release(Key.delete)
 
                         # Restore original clipboard content
                         time.sleep(0.1)  # Wait for paste to complete
                         try:
-                            InputSimulator._win32_set_clipboard(clipboard_text)
+                            InputSimulator.set_clipboard(clipboard_text)
                         except Exception:
                             pass
 

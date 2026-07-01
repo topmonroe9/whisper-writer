@@ -31,10 +31,10 @@ dependencies = [
     "webrtcvad-wheels>=2.0.11.post1",
     "srt>=3.5.3",
     
-    # Windows-specific dependencies
-    "pycaw>=20240210",
-    "pywin32>=308",
-    "comtypes>=1.4.10",
+    # Windows-specific dependencies (skipped on macOS/Linux)
+    "pycaw>=20240210; sys_platform == 'win32'",
+    "pywin32>=308; sys_platform == 'win32'",
+    "comtypes>=1.4.10; sys_platform == 'win32'",
     
     # API integrations
     "openai>=1.28.0",

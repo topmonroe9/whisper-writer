@@ -11,6 +11,7 @@ __pycache__/
 build/*
 !build/*.spec
 !build/build.py
+!build/build_macos.sh
 develop-eggs/
 dist/
 downloads/
@@ -138,6 +139,9 @@ dmypy.json
 
 # Configuration files
 config.yaml
+
+# Transcription history
+history.json
 
 # Keyring and credentials
 *.keyring

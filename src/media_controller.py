@@ -2,13 +2,10 @@ from pynput.keyboard import Controller, Key
 import time
 import platform
 import subprocess
-import ctypes
-from ctypes import cast, POINTER
-from comtypes import CLSCTX_ALL
 from utils import ConfigManager
 if platform.system() == 'Windows':
     import pythoncom  # For COM initialization
-    from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume, IAudioMeterInformation
+    from pycaw.pycaw import AudioUtilities, IAudioMeterInformation
 
 class MediaController:
     def __init__(self):
